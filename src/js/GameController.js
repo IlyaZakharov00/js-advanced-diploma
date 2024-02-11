@@ -1,3 +1,10 @@
+import gamePlay from "./GamePlay";
+import themes from "./themes";
+import Team from "./Team.js";
+import { generateTeam, characterGenerator } from "./generators.js";
+import PositionedCharacter from "./PositionedCharacter.js";
+import GameState from "./GameState.js";
+
 export default class GameController {
   constructor(gamePlay, stateService) {
     this.gamePlay = gamePlay;
@@ -5,8 +12,7 @@ export default class GameController {
   }
 
   init() {
-    // TODO: add event listeners to gamePlay events
-    // TODO: load saved stated from stateService
+    this.gamePlay.drawUi(themes.prairie);
   }
 
   onCellClick(index) {
