@@ -36,3 +36,5 @@ export default class Team {
     this.members.delete(person);
   }
 }
+
+console.log(Team);

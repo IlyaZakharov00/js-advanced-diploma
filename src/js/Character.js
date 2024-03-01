@@ -25,3 +25,5 @@ export default class Character {
     }
   }
 }
+
+console.log(Character)
