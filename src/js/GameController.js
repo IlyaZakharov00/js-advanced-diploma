@@ -19,11 +19,7 @@ export default class GameController {
     this.gamePlay = gamePlay;
     this.gameState = new GameState();
     this.stateService = stateService;
-    // this.allPersons = [];
-    // this.countSquare;
-    // this.allowIndexsMove;
-    // this.countAttack;
-    // this.allowIndexsAttack;
+
     this.userTeam = []; // команда user
     this.userPositions = []; // позиции команды user
     this.userTeamWithPosition = []; //объекты персонаж-позиция команды user
@@ -36,7 +32,7 @@ export default class GameController {
     // начало игры
     this.gamePlay.drawUi(themes[this.gameState.level]); //отрисовка оформления уровня
 
-    this.userTeam = generateTeam([Magician, Bowerman, Swordsman], 1, 4); //создание команды user
+    this.userTeam = generateTeam([Magician, Bowerman, Swordsman], 1, 3); //создание команды user
 
     this.userPositions = getRandomUserncePosition(); //создание рандомных позиций
 
@@ -49,7 +45,7 @@ export default class GameController {
       this.gameState.heroesList.push(fighterAndPosition); //добавление в heroesList
     }
 
-    this.enemyTeam = generateTeam([Undead, daemon, Vampire], 1, 4); //создание команды enemy
+    this.enemyTeam = generateTeam([Undead, daemon, Vampire], 1, 3); //создание команды enemy
 
     this.enemyPositions = getRandomEnemyPosition(); //создание рандомных позиций
 
@@ -92,14 +88,18 @@ export default class GameController {
         hero instanceof Bowerman ||
         hero instanceof Magician
       ) {
-        if (!this.gameState.characterSelected) {
+        if (
+          !this.gameState.characterSelected &&
+          !this.gameState.permissionMove
+        ) {
           // провекра есть ли выбранный персонаж
-
           this.gamePlay.selectCell(index); // Подсвечивание игрока
 
           this.gameState.characterSelected = index; //запись, что игрок был выбран
 
           this.gameState.permissionMove = true; // ход разрешен
+
+          this.findBorder(); // поиск границ поля
 
           this.countSquare = this.findCountSquare(index); // поиск количества квадратиков. максимальная величина шага
           this.allowIndexsMove = this.calcMove(this.countSquare, index); // доступные индексы для ходьбы
@@ -107,11 +107,61 @@ export default class GameController {
           this.countAttack = this.findAttackSquare(index); // поиск количества квадратиков. максимальная величина атаки
           this.allowIndexsAttack = this.calcAttack(this.countAttack, index); // доступные индексы для атаки
         } else {
+          // при нажатии на своего союхника
           this.gameState.characterSelected = null; // если есть выбранные персонаж, то записываем null
           this.gameState.permissionMove = false; // если есть выбранный персонаж, то запрещаем ход
         }
-      } else {
-        gamePlay.showError("Так нельзя!"); // выбрасывание ошибки
+      } else if (
+        this.gameState.characterSelected &&
+        !this.allowIndexsAttack.includes(index)
+      ) {
+        // при нажатии в недоступное зоне атаки
+        this.gameState.characterSelected = null; // если есть выбранные персонаж, то записываем null
+        this.gameState.permissionMove = false; // если есть выбранный персонаж, то запрещаем ход
+        return;
+      }
+
+      if (!this.gameState.characterSelected && this.findEnemyPerson(index)) {
+        gamePlay.showError("Нельзя управлять персонажем из команды врага!"); // выбрасывание ошибки при попытке сходить за врага
+      }
+
+      // нанесение урона врагу
+      if (
+        this.findEnemyPerson(index) &&
+        this.gameState.permissionMove &&
+        this.gameState.characterSelected &&
+        this.allowIndexsAttack.includes(index)
+      ) {
+        // если выбран персонаж и доступно перемещение и в индекске для атаки есть персонаж врага
+        let target = this.findPersonByIndex(index);
+        let attacker = this.findPersonByIndex(this.gameState.characterSelected);
+
+        let damage = Math.max(
+          attacker.character.attack - target.character.defence,
+          attacker.character.attack * 0.1
+        );
+        console.log(index);
+
+        this.gamePlay.showDamage(index, damage).then(() => {
+          target.character.health -= damage;
+
+          if (target.character.health <= 0) {
+            let idx = this.gameState.heroesList.indexOf(target);
+            let idxEnemy = this.enemyTeamWithPosition.indexOf(target);
+            this.enemyTeamWithPosition.splice(idxEnemy, 1);
+            this.gameState.heroesList.splice(idx, 1);
+            this.gamePlay.redrawPositions(this.gameState.heroesList);
+
+            if (this.enemyTeamWithPosition.length === 0) {
+              this.nextLevel();
+            }
+          }
+          this.gamePlay.redrawPositions(this.gameState.heroesList);
+          this.enemyAttackUser();
+        });
+
+        this.gameState.characterSelected = null; // если есть выбранные персонаж, то записываем null
+        this.gameState.permissionMove = false; // если есть выбранный персонаж, то запрещаем ход
       }
     }
 
@@ -120,7 +170,6 @@ export default class GameController {
     if (
       //проверка, что нажатая ячейка с таким то индексом не содрежит игрока user или enemy. Проверка permissionMove
       !this.findPersonByIndex(index) &&
-      !this.findEnemyPerson(index) &&
       this.gameState.permissionMove &&
       this.allowIndexsMove.includes(index)
     ) {
@@ -150,20 +199,26 @@ export default class GameController {
       this.gamePlay.setCursor("pointer"); //pointer при выборе игрока
     }
 
-    if (!this.findPersonByIndex(index) && this.findtSelectedCharacter()) {
-      if (this.allowIndexsMove.includes(index)) {
-        this.gamePlay.setCursor("pointer");
-        this.gamePlay.selectCell(index, "green"); //зеленый круг при выборе ячейки поля для ходьбы. С ограничениями в зависимости от типа персонажа.
-        this.gameState.permissionMove = true;
-      }
+    if (
+      !this.findPersonByIndex(index) &&
+      this.gameState.characterSelected &&
+      this.allowIndexsMove.includes(index)
+    ) {
+      this.gamePlay.setCursor("pointer");
+      this.gamePlay.selectCell(index, "green"); //зеленый круг при выборе ячейки поля для ходьбы. С ограничениями в зависимости от типа персонажа.
+      this.gameState.permissionMove = true;
     }
 
-    if (this.findEnemyPerson(index) && this.findtSelectedCharacter()) {
-      if (this.allowIndexsAttack.includes(index)) {
-        this.gamePlay.setCursor("pointer");
-        this.gamePlay.selectCell(index, "red"); // красный круг при выборе атаки во время хода игрока
-      }
-    } else if (this.findUserPerson(index) && this.findtSelectedCharacter()) {
+    if (
+      this.findEnemyPerson(index) &&
+      this.gameState.characterSelected &&
+      this.allowIndexsAttack.includes(index)
+    ) {
+      this.gamePlay.setCursor("pointer");
+      this.gamePlay.selectCell(index, "red"); // красный круг при выборе атаки во время хода игрока
+    }
+
+    if (this.findUserPerson(index) && this.findtSelectedCharacter()) {
       this.gamePlay.setCursor("not-allowed"); //при недопустимых условиях курсор not-allowed
     }
   }
@@ -208,6 +263,36 @@ export default class GameController {
     );
   }
 
+  findBorder() {
+    // границы
+    this.leftBorder = []; //левая граница
+    this.rightBorder = []; //правая граница
+
+    for (
+      // заполнение левой и правой границ
+      let i = 0, j = this.gamePlay.boardSize - 1;
+      this.leftBorder.length < this.gamePlay.boardSize;
+      i += this.gamePlay.boardSize, j += this.gamePlay.boardSize
+    ) {
+      this.leftBorder.push(i);
+      this.rightBorder.push(j);
+    }
+
+    this.upBorder = []; //верхняя и нижняя граница
+    this.downBorder = []; //нижняя и нижняя граница
+
+    for (
+      // заполнение верхней и нижней границ
+      let i = 0, j = this.gamePlay.boardSize * this.gamePlay.boardSize - 1;
+      this.upBorder.length < this.gamePlay.boardSize;
+      i += 1, j -= 1
+    ) {
+      this.upBorder.push(i);
+      this.downBorder.push(j);
+    }
+    //границы
+  }
+
   findCountSquare(index) {
     //возвращение числа возможных ячеек при ходьбе в зависимости от типа персонажа
     const pers = this.findPersonByIndex(index);
@@ -232,37 +317,11 @@ export default class GameController {
     let upIndex = [];
     let downIndex = [];
 
-    const leftBorder = []; //левая граница
-    const rightBorder = []; //правая граница
-
-    for (
-      // заполнение левой и правой границ
-      let i = 0, j = this.gamePlay.boardSize - 1;
-      leftBorder.length < this.gamePlay.boardSize;
-      i += this.gamePlay.boardSize, j += this.gamePlay.boardSize
-    ) {
-      leftBorder.push(i);
-      rightBorder.push(j);
-    }
-
-    const upBorder = []; //верхняя и нижняя граница
-    const downBorder = []; //нижняя и нижняя граница
-
-    for (
-      // заполнение верхней и нижней границ
-      let i = 0, j = this.gamePlay.boardSize * this.gamePlay.boardSize - 1;
-      upBorder.length < this.gamePlay.boardSize;
-      i += 1, j -= 1
-    ) {
-      upBorder.push(i);
-      downBorder.push(j);
-    }
-
     //клетки по вертикали
     for (let i = 1; i <= countSquare; i++) {
       //проверка является ли клетка на которой стоит игрок границей. если нет то пушим в доступные для ходьбы индексы
 
-      if (!upBorder.includes(indexSelected)) {
+      if (!this.upBorder.includes(indexSelected)) {
         const index = indexSelected - this.gamePlay.boardSize * i;
         if (index >= 0) {
           this.allowIndexsMove.push(
@@ -272,7 +331,7 @@ export default class GameController {
         }
       }
 
-      if (!downBorder.includes(indexSelected)) {
+      if (!this.downBorder.includes(indexSelected)) {
         const index = indexSelected + this.gamePlay.boardSize * i;
         if (index < this.gamePlay.boardSize ** 2) {
           this.allowIndexsMove.push(
@@ -286,7 +345,7 @@ export default class GameController {
 
     //клетки справа
     for (let i = 1; i <= countSquare; i++) {
-      if (rightBorder.includes(indexSelected)) {
+      if (this.rightBorder.includes(indexSelected)) {
         //проверка является ли клетка на которой персонаж границей.
         break;
       }
@@ -306,13 +365,13 @@ export default class GameController {
         rightIndex.push(diagUpRight);
       }
 
-      if (rightBorder.includes(indexSelected + i)) break;
+      if (this.rightBorder.includes(indexSelected + i)) break;
     }
     //клетки справа
 
     //клетки слева
     for (let i = 1; i <= countSquare; i++) {
-      if (leftBorder.includes(indexSelected)) {
+      if (this.leftBorder.includes(indexSelected)) {
         //проверка является ли клетка на которой персонаж границей.
         break;
       }
@@ -331,26 +390,36 @@ export default class GameController {
         leftIndex.push(diagUpLeft);
       }
 
-      if (leftBorder.includes(indexSelected - i)) break;
+      if (this.leftBorder.includes(indexSelected - i)) break;
     }
     //клетки слева
 
-    console.log(
-      upIndex + " upIndex",
-      downIndex + " downIndex",
-      leftIndex + " leftIndex",
-      rightIndex + " rightIndex",
-      " ИНДЕКСЫ ХОДЬБЫ"
-    );
+    // console.log(
+    //   upIndex + " upIndex",
+    //   downIndex + " downIndex",
+    //   leftIndex + " leftIndex",
+    //   rightIndex + " rightIndex",
+    //   " ИНДЕКСЫ ХОДЬБЫ"
+    // );
     return this.allowIndexsMove;
   }
 
   userMoveClickIndex(index) {
-    this.findtSelectedCharacter().position = index; // поиск персонажа по индексу и замена этого индекса
-    this.gamePlay.deselectCell(this.gameState.characterSelected); // удаление выбранных персонажей
-    this.gamePlay.redrawPositions(this.gameState.heroesList); // перерисовка позиций персонажей
-    this.gameState.characterSelected = null;
-    this.gameState.permissionMove = false;
+    if (this.findtSelectedCharacter()) {
+      this.findtSelectedCharacter().position = index; // поиск персонажа по индексу и замена этого индекса
+      this.gamePlay.deselectCell(this.gameState.characterSelected); // удаление выбранных персонажей
+      this.gamePlay.redrawPositions(this.gameState.heroesList); // перерисовка позиций персонажей
+      this.gameState.characterSelected = null;
+      this.gameState.permissionMove = false;
+      this.enemyAttackUser();
+    } else {
+      console.log(this.gameState.characterSelected);
+      this.gameState.characterSelected.position = index; // поиск персонажа по индексу и замена этого индекса
+      // this.gamePlay.deselectCell(this.gameState.characterSelected); // удаление выбранных персонажей
+      this.gamePlay.redrawPositions(this.gameState.heroesList); // перерисовка позиций персонажей
+      this.gameState.characterSelected = null;
+      this.gameState.permissionMove = false;
+    }
   }
 
   findAttackSquare(index) {
@@ -380,37 +449,9 @@ export default class GameController {
     let upIndex = [];
     let downIndex = [];
 
-    const leftBorder = []; //левая граница
-    const rightBorder = []; //правая граница
-
-    for (
-      // заполнение левой и правой границ
-      let i = 0, j = this.gamePlay.boardSize - 1;
-      leftBorder.length < this.gamePlay.boardSize;
-      i += this.gamePlay.boardSize, j += this.gamePlay.boardSize
-    ) {
-      leftBorder.push(i);
-      rightBorder.push(j);
-    }
-
-    const upBorder = []; //верхняя и нижняя граница
-    const downBorder = []; //нижняя и нижняя граница
-
-    for (
-      // заполнение верхней и нижней границ
-      let i = 0, j = this.gamePlay.boardSize * this.gamePlay.boardSize - 1;
-      upBorder.length < this.gamePlay.boardSize;
-      i += 1, j -= 1
-    ) {
-      upBorder.push(i);
-      downBorder.push(j);
-    }
-
-    //клетки по вертикали
+    // клетки по вертикали
     for (let i = 1; i <= countAttack; i++) {
-      //проверка является ли клетка на которой стоит игрок границей. если нет то пушим в доступные для ходьбы индексы
-
-      if (!upBorder.includes(indexSelected)) {
+      if (!this.upBorder.includes(indexSelected)) {
         const index = indexSelected - this.gamePlay.boardSize * i;
         if (index >= 0) {
           this.allowIndexsAttack.push(
@@ -420,7 +461,7 @@ export default class GameController {
         }
       }
 
-      if (!downBorder.includes(indexSelected)) {
+      if (!this.downBorder.includes(indexSelected)) {
         const index = indexSelected + this.gamePlay.boardSize * i;
         if (index < this.gamePlay.boardSize ** 2) {
           this.allowIndexsAttack.push(
@@ -430,67 +471,238 @@ export default class GameController {
         }
       }
     }
-    //клетки по вертикали
+    // клетки по вертикали
 
     //клетки справа
     for (let i = 1; i <= countAttack; i++) {
-      if (rightBorder.includes(indexSelected)) {
+      if (this.rightBorder.includes(indexSelected)) {
         //проверка является ли клетка на которой персонаж границей.
         break;
       }
 
-      this.allowIndexsAttack.push(indexSelected + i); // клетки справа
-      rightIndex.push(indexSelected + i);
+      let rightedIndex = indexSelected + i;
+      let lineUp = indexSelected - this.gamePlay.boardSize * i;
+      let lineDown = indexSelected + this.gamePlay.boardSize * i;
 
-      let diagDownRight = indexSelected + (this.gamePlay.boardSize * i + i); // клетки снизу по диагонали справа
-      if (diagDownRight < this.gamePlay.boardSize ** 2) {
-        this.allowIndexsAttack.push(diagDownRight);
-        rightIndex.push(diagDownRight);
+      if (!this.leftBorder.includes(rightedIndex)) {
+        this.allowIndexsAttack.push(rightedIndex); // клетки справа
+        rightIndex.push(rightedIndex);
       }
 
-      let diagUpRight = indexSelected - (this.gamePlay.boardSize * i - i); // клетки справа сверху по диагонали
-      if (diagUpRight >= 0) {
-        this.allowIndexsAttack.push(diagUpRight);
-        rightIndex.push(diagUpRight);
+      if (lineUp < 0) {
+      } else {
+        for (let k = 1; k <= countAttack; k++) {
+          if (!this.leftBorder.includes(lineUp + k)) {
+            this.allowIndexsAttack.push(lineUp + k); // клетка сверху справа
+            rightIndex.push(lineUp + k);
+          }
+        }
       }
 
-      if (rightBorder.includes(indexSelected + i)) break;
+      if (lineDown >= this.gamePlay.boardSize ** 2) {
+      } else {
+        for (let k = 1; k <= countAttack; k++) {
+          if (
+            !this.leftBorder.includes(lineDown + k) &&
+            lineDown + k < this.gamePlay.boardSize ** 2
+          ) {
+            this.allowIndexsAttack.push(lineDown + k); // клетка снизу справа
+            rightIndex.push(lineDown + k);
+          }
+        }
+      }
     }
     //клетки справа
 
     //клетки слева
     for (let i = 1; i <= countAttack; i++) {
-      if (leftBorder.includes(indexSelected)) {
+      if (this.leftBorder.includes(indexSelected)) {
         //проверка является ли клетка на которой персонаж границей.
         break;
       }
-      this.allowIndexsAttack.push(indexSelected - i); // клетки слева
-      leftIndex.push(indexSelected - i);
 
-      let diagDownLeft = indexSelected + (this.gamePlay.boardSize * i - i); // клетки слева по диагонали снизу
-      if (diagDownLeft < this.gamePlay.boardSize ** 2) {
-        this.allowIndexsAttack.push(diagDownLeft); // клетки слева по диагонали снизу
-        leftIndex.push(diagDownLeft);
+      let leftedIndex = indexSelected - i;
+      let lineUp = indexSelected - this.gamePlay.boardSize * i;
+      let lineDown = indexSelected + this.gamePlay.boardSize * i;
+
+      if (!this.rightBorder.includes(leftedIndex)) {
+        this.allowIndexsAttack.push(leftedIndex); // клетки слева
+        leftIndex.push(leftedIndex);
       }
 
-      let diagUpLeft = indexSelected - (this.gamePlay.boardSize * i + i); // клетки слева сверху по диагонали
-      if (diagUpLeft >= 0) {
-        this.allowIndexsAttack.push(diagUpLeft); // клетки сверху по диагонали слева
-        leftIndex.push(diagUpLeft);
+      if (lineUp < 0) {
+      } else {
+        for (let k = 1; k <= countAttack; k++) {
+          if (!this.rightBorder.includes(lineUp - k)) {
+            this.allowIndexsAttack.push(lineUp - k); // клетка сверху слева
+            leftIndex.push(lineUp - k);
+          }
+        }
       }
 
-      if (leftBorder.includes(indexSelected - i)) break;
+      if (lineDown >= this.gamePlay.boardSize ** 2) {
+      } else {
+        for (let k = 1; k <= countAttack; k++) {
+          if (!this.rightBorder.includes(lineDown - k) && lineDown - k > 0) {
+            this.allowIndexsAttack.push(lineDown - k); // клетка снизу слева
+            leftIndex.push(lineDown - k);
+          }
+        }
+      }
     }
     //клетки слева
 
-    console.log(
-      upIndex + " upIndex",
-      downIndex + " downIndex",
-      leftIndex + " leftIndex",
-      rightIndex + " rightIndex",
-      " ИНДЕКСЫ АТАКИ"
-    );
-    return this.allowIndexsMove;
+    return this.allowIndexsAttack;
+  }
+
+  enemyAttackUser() {
+    if (this.gameState.permissionMove) {
+      return;
+    }
+    // const enemyTeam = this.gameState.heroesList.filter(
+    //   (event) =>
+    //     event.character instanceof Vampire ||
+    //     event.character instanceof Daemon ||
+    //     event.character instanceof Undead
+    // );
+    // const usersTeam = this.gameState.heroesList.filter(
+    //   (event) =>
+    //     event.character instanceof Bowman ||
+    //     event.character instanceof Swordsman ||
+    //     event.character instanceof Magician
+    // );
+
+    let attacker = null;
+    let target = null;
+    let countAttack;
+    let indexsAttack;
+    let countSquare;
+    let indexsMove;
+    // this.gameState.permissionMove = true;
+
+    if (
+      this.enemyTeamWithPosition.length === 0 ||
+      this.userTeamWithPosition.length === 0
+    ) {
+      return;
+    }
+
+    this.enemyTeamWithPosition.forEach((enemy) => {
+      countAttack = this.findAttackSquare(enemy.position); //поиск количество клеток для атаки
+      indexsAttack = this.calcAttack(countAttack, enemy.position); // поиск индексов для атаки
+      countSquare = this.findCountSquare(enemy.position);
+      indexsMove = this.calcMove(countSquare, enemy.position);
+
+      this.userTeamWithPosition.forEach((hero) => {
+        if (indexsAttack.includes(hero.position)) {
+          attacker = enemy;
+          target = hero;
+        }
+      });
+    });
+
+    if (target) {
+      //если есть цель то  бьем по ней
+      let damage = Math.max(
+        attacker.character.attack - target.character.defence,
+        attacker.character.attack * 0.1
+      );
+      // console.log(attacker, target, damage);
+
+      this.gamePlay.showDamage(target.position, damage).then(() => {
+        target.character.health -= damage;
+        this.gamePlay.redrawPositions(this.gameState.heroesList);
+        console.log("на нахуй");
+      });
+    } else {
+      this.gameState.characterSelected =
+        this.enemyTeamWithPosition[
+          Math.floor(Math.random() * this.enemyTeamWithPosition.length)
+        ];
+      let randomIndexMove =
+        indexsMove[Math.floor(Math.random() * indexsMove.length)];
+
+      while (this.enemyTeamWithPosition.includes(randomIndexMove)) {
+        randomIndexMove =
+          indexsMove[Math.floor(Math.random() * indexsMove.length)];
+      }
+
+      console.log(
+        this.gameState.characterSelected,
+        randomIndexMove,
+        indexsMove
+      );
+
+      this.userMoveClickIndex(randomIndexMove);
+    }
+    console.log("логика при ходе компьютера");
+  }
+
+  levelUP(person) {
+    if (person.health <= 50) {
+      person.attack = person.attack + person.attack * 0.3;
+      person.defence = person.defence + person.defence * 0.3;
+    }
+    person.health + 80 > 100 ? (person.health = 100) : (person.health += 80);
+    console.log("повышение уровня персонажей");
+  }
+  nextLevel() {
+    //дописать логику при переходе на новый уровень. добавить удаление персонажей user при убийстве
+    console.log("new level");
+    this.gameState.level++;
+    for (const person of this.userTeamWithPosition) {
+      this.levelUP(person.character);
+    }
+    this.gamePlay.drawUi(this.gameState.level);
+    if (this.gameState.level === 2) {
+      this.userTeam.addAll(generateTeam([Magician, Bowerman, Swordsman], 2, 1));
+      this.enemyTeam.addAll(generateTeam([Undead, daemon, Vampire], 2, 3));
+    }
   }
 }
 console.log(GameController);
+
+// this.gamePlay.showDamage(target.position, damage).then(() => {
+//   console.log("на нахуй");
+
+//   target.character.health -= damage;
+//   if (target.character.health <= 0) {
+//     let idx = this.gameState.heroesList.indexOf(target);
+//     let idxUser = this.userTeamWithPosition.indexOf(target);
+//     this.userTeamWithPosition.splice(idxUser, 1);
+//     this.gameState.heroesList.splice(idx, 1);
+//     // this.getDeletion(target.position);
+//     this.gamePlay.redrawPositions(this.gameState.heroesList);
+
+//     // this.gamePlay.deselectCell(this.gameState.characterSelected);
+//   }
+//   console.log("обновили");
+
+//   this.gamePlay.redrawPositions(this.gameState.heroesList);
+// });
+
+//     .then(() => {
+//       this.gamePlay.redrawPositions(this.gameState.heroesList);
+//       this.gameState.permissionMove = true;
+//       this.gameState.characterSelected = null;
+//     })
+//     .then(() => {
+//       this.GameStatistic();
+//     });
+// } else {
+//   rival = rivalsTeam[Math.floor(Math.random() * rivalsTeam.length)];
+//   const rivalRange = this.calcPositionMove(
+//     rival.position,
+//     rival.character.distance
+//   );
+//   rivalRange.forEach((event) => {
+//     this.gameState.heroesList.forEach((i) => {
+//       if (event === i.position) {
+//         rivalRange.splice(rivalRange.indexOf(i.position), 1);
+//       }
+//     });
+//   });
+//   const rivalPosition = this.getRandom(rivalRange);
+//   rival.position = rivalPosition;
+//   this.gamePlay.redrawPositions(this.gameState.heroesList);
+//   this.gameState.permissionMove = true;
