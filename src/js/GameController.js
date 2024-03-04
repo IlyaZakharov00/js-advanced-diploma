@@ -4,7 +4,7 @@ import Team from "./Team.js";
 import { generateTeam, characterGenerator } from "./generators.js";
 import PositionedCharacter from "./PositionedCharacter.js";
 import GameState from "./GameState.js";
-import getRandomUserncePosition from "./getRandomUserPosition.js";
+import getRandomUserPosition from "./getRandomUserPosition.js";
 import getRandomEnemyPosition from "./getRandomEnemyPosition.js";
 import Bowerman from "./characters/Bowerman.js";
 import Magician from "./characters/Magician.js";
@@ -20,10 +20,10 @@ export default class GameController {
     this.gameState = new GameState();
     this.stateService = stateService;
 
-    this.userTeam = []; // команда user
+    this.userTeam = new Team(); // команда user
     this.userPositions = []; // позиции команды user
     this.userTeamWithPosition = []; //объекты персонаж-позиция команды user
-    this.enemyTeam = []; // команда enemy
+    this.enemyTeam = new Team(); // команда enemy
     this.enemyPositions = []; // позиции команды enemy
     this.enemyTeamWithPosition = []; //объекты персонаж-позиция команды enemy
   }
@@ -34,7 +34,7 @@ export default class GameController {
 
     this.userTeam = generateTeam([Magician, Bowerman, Swordsman], 1, 3); //создание команды user
 
-    this.userPositions = getRandomUserncePosition(); //создание рандомных позиций
+    this.userPositions = getRandomUserPosition(); //создание рандомных позиций
 
     for (let i = 0; i < this.userTeam.length; i++) {
       let fighterAndPosition = new PositionedCharacter(
@@ -45,7 +45,7 @@ export default class GameController {
       this.gameState.heroesList.push(fighterAndPosition); //добавление в heroesList
     }
 
-    this.enemyTeam = generateTeam([Undead, daemon, Vampire], 1, 3); //создание команды enemy
+    this.enemyTeam = generateTeam([Undead, daemon, Vampire], 1, 2); //создание команды enemy
 
     this.enemyPositions = getRandomEnemyPosition(); //создание рандомных позиций
 
@@ -76,12 +76,85 @@ export default class GameController {
     this.gamePlay.addCellLeaveListener((index) => {
       this.onCellLeave(index); //логика при покидании фокуса клетки
     });
+
+    this.gamePlay.addNewGameListener(() => {
+      const gameController = new GameController(
+        this.gamePlay,
+        this.stateService
+      );
+      gameController.init(); // при нажатии на new game начинается новая игра
+    });
+
+    this.gamePlay.addSaveGameListener(() => {
+      // сохранение игры
+      this.stateService.save(GameState.from(this.gameState));
+      if (localStorage.getItem("state") === null) {
+        gamePlay.showMessage("Игра не сохранилась");
+      }
+      gamePlay.showMessage("Игра сохранена");
+    });
+
+    this.gamePlay.addLoadGameListener(() => {
+      // загрузка игры
+      const loadGame = this.stateService.load();
+      if (!loadGame) {
+        gamePlay.showError("Отсутствует сохраненная игра");
+      }
+      this.gameState.level = loadGame.level;
+      this.gamePlay.drawUi(themes[loadGame.level]);
+      this.gameState.permissionMove = loadGame.permissionMove;
+      this.gameState.heroesList = [];
+      this.gameState.points = loadGame.points;
+      this.gameState.statistic = loadGame.statistic;
+      this.gameState.characterSelected = loadGame.characterSelected;
+      this.userTeam = new Team();
+      this.rivalTeam = new Team();
+
+      loadGame.heroesList.forEach((elem) => {
+        let char;
+        switch (elem.character.type) {
+          case "swordsman":
+            char = new Swordsman(elem.character.level);
+            this.userTeam.addAll([char]);
+            break;
+          case "bowman":
+            char = new Bowerman(elem.character.level);
+            this.userTeam.addAll([char]);
+            break;
+          case "magician":
+            char = new Magician(elem.character.level);
+            this.userTeam.addAll([char]);
+            break;
+          case "undead":
+            char = new Undead(elem.character.level);
+            this.rivalTeam.addAll([char]);
+            break;
+          case "vampire":
+            char = new Vampire(elem.character.level);
+            this.rivalTeam.addAll([char]);
+            break;
+          case "daemon":
+            char = new daemon(elem.character.level);
+            this.rivalTeam.addAll([char]);
+            break;
+        }
+        char.health = elem.character.health;
+
+        this.gameState.heroesList.push(
+          new PositionedCharacter(char, elem.position)
+        );
+      });
+
+      this.gamePlay.redrawPositions(this.gameState.heroesList);
+      gamePlay.showMessage("Игра загружена");
+    });
   }
 
   onCellClick(index) {
     if (this.findPersonByIndex(index)) {
       //проверка. был ли клик совершен на персонаже
       const hero = this.findPersonByIndex(index).character;
+
       if (
         // проверка типа персонажа
         hero instanceof Swordsman ||
@@ -133,31 +206,40 @@ export default class GameController {
         this.allowIndexsAttack.includes(index)
       ) {
         // если выбран персонаж и доступно перемещение и в индекске для атаки есть персонаж врага
-        let target = this.findPersonByIndex(index);
-        let attacker = this.findPersonByIndex(this.gameState.characterSelected);
+        let target = this.findPersonByIndex(index); // поиск цели
+        let attacker = this.findPersonByIndex(this.gameState.characterSelected); // поиск атакующего
 
         let damage = Math.max(
           attacker.character.attack - target.character.defence,
           attacker.character.attack * 0.1
-        );
-        console.log(index);
+        ); // подсчет урона
 
         this.gamePlay.showDamage(index, damage).then(() => {
-          target.character.health -= damage;
+          target.character.health -= damage; // уменьшение жизни у цели
+          this.gamePlay.redrawPositions(this.gameState.heroesList);
 
           if (target.character.health <= 0) {
-            let idx = this.gameState.heroesList.indexOf(target);
-            let idxEnemy = this.enemyTeamWithPosition.indexOf(target);
-            this.enemyTeamWithPosition.splice(idxEnemy, 1);
-            this.gameState.heroesList.splice(idx, 1);
+            // если жизней 0 то удаляем персонажа
+            this.enemyTeam.splice(this.enemyTeam.indexOf(target), 1);
+            this.enemyTeamWithPosition.splice(
+              this.enemyTeamWithPosition.indexOf(target),
+              1
+            );
+            this.gameState.heroesList.splice(
+              this.gameState.heroesList.indexOf(target),
+              1
+            );
             this.gamePlay.redrawPositions(this.gameState.heroesList);
 
-            if (this.enemyTeamWithPosition.length === 0) {
+            if (this.enemyTeam.length === 0) {
+              // если не осталось персонажей у компьютера то следующий уровень
               this.nextLevel();
+            } else {
+              // иначе ход комьютера
+              this.enemyAttackUser();
+              this.gamePlay.redrawPositions(this.gameState.heroesList);
             }
-          }
-          this.gamePlay.redrawPositions(this.gameState.heroesList);
-          this.enemyAttackUser();
+          } else this.enemyAttackUser(); // иначе ход компьютера
         });
 
         this.gameState.characterSelected = null; // если есть выбранные персонаж, то записываем null
@@ -188,7 +270,6 @@ export default class GameController {
 
   onCellEnter(index) {
     // метод работает при наведении курсора на персонажа.
-
     if (this.findPersonByIndex(index)) {
       const hero = this.findPersonByIndex(index).character;
       const message = `\u{1F396}${hero.level}\u{2694}${hero.attack}\u{1F6E1}${hero.defence}\u{2764}${hero.health}`;
@@ -200,9 +281,10 @@ export default class GameController {
     }
 
     if (
+      this.gameState.characterSelected !== null &&
       !this.findPersonByIndex(index) &&
-      this.gameState.characterSelected &&
-      this.allowIndexsMove.includes(index)
+      this.allowIndexsMove.includes(index) &&
+      this.gameState.permissionMove
     ) {
       this.gamePlay.setCursor("pointer");
       this.gamePlay.selectCell(index, "green"); //зеленый круг при выборе ячейки поля для ходьбы. С ограничениями в зависимости от типа персонажа.
@@ -210,15 +292,19 @@ export default class GameController {
     }
 
     if (
-      this.findEnemyPerson(index) &&
       this.gameState.characterSelected &&
+      this.findEnemyPerson(index) &&
       this.allowIndexsAttack.includes(index)
     ) {
-      this.gamePlay.setCursor("pointer");
+      this.gamePlay.setCursor("crosshair");
       this.gamePlay.selectCell(index, "red"); // красный круг при выборе атаки во время хода игрока
     }
 
-    if (this.findUserPerson(index) && this.findtSelectedCharacter()) {
+    if (
+      this.gameState.characterSelected &&
+      !this.allowIndexsMove.includes(index) &&
+      !this.allowIndexsAttack.includes(index)
+    ) {
       this.gamePlay.setCursor("not-allowed"); //при недопустимых условиях курсор not-allowed
     }
   }
@@ -559,18 +645,6 @@ export default class GameController {
     if (this.gameState.permissionMove) {
       return;
     }
-    // const enemyTeam = this.gameState.heroesList.filter(
-    //   (event) =>
-    //     event.character instanceof Vampire ||
-    //     event.character instanceof Daemon ||
-    //     event.character instanceof Undead
-    // );
-    // const usersTeam = this.gameState.heroesList.filter(
-    //   (event) =>
-    //     event.character instanceof Bowman ||
-    //     event.character instanceof Swordsman ||
-    //     event.character instanceof Magician
-    // );
 
     let attacker = null;
     let target = null;
@@ -578,7 +652,6 @@ export default class GameController {
     let indexsAttack;
     let countSquare;
     let indexsMove;
-    // this.gameState.permissionMove = true;
 
     if (
       this.enemyTeamWithPosition.length === 0 ||
@@ -590,11 +663,12 @@ export default class GameController {
     this.enemyTeamWithPosition.forEach((enemy) => {
       countAttack = this.findAttackSquare(enemy.position); //поиск количество клеток для атаки
       indexsAttack = this.calcAttack(countAttack, enemy.position); // поиск индексов для атаки
-      countSquare = this.findCountSquare(enemy.position);
-      indexsMove = this.calcMove(countSquare, enemy.position);
+      countSquare = this.findCountSquare(enemy.position); // поис количества клеток для ходьбы
+      indexsMove = this.calcMove(countSquare, enemy.position); // поиск индексов для ходьбы
 
       this.userTeamWithPosition.forEach((hero) => {
         if (indexsAttack.includes(hero.position)) {
+          // если индексы для атаки содержат позицию игрока user
           attacker = enemy;
           target = hero;
         }
@@ -607,57 +681,110 @@ export default class GameController {
         attacker.character.attack - target.character.defence,
         attacker.character.attack * 0.1
       );
-      // console.log(attacker, target, damage);
 
       this.gamePlay.showDamage(target.position, damage).then(() => {
-        target.character.health -= damage;
+        target.character.health -= damage; // уменьшаем здоровье
         this.gamePlay.redrawPositions(this.gameState.heroesList);
-        console.log("на нахуй");
+        if (target.character.health <= 0) {
+          // если жизней стало 0 то удаляем персонажа
+          this.gameState.heroesList.splice(
+            this.gameState.heroesList.indexOf(target),
+            1
+          );
+          this.userTeamWithPosition.splice(
+            this.userTeamWithPosition.indexOf(target),
+            1
+          );
+          this.gamePlay.userTeam.splice(this.userTeam.indexOf(target), 1);
+          this.gamePlay.redrawPositions(this.gameState.heroesList);
+
+          if (this.userTeamWithPosition.length === 0) {
+            gamePlay.showMessage("Вы проиграли!"); // сообщение при потери всех игроков команды user
+          }
+        }
       });
     } else {
+      // если цели нет то перемещаемся рандомно
       this.gameState.characterSelected =
         this.enemyTeamWithPosition[
           Math.floor(Math.random() * this.enemyTeamWithPosition.length)
-        ];
+        ]; // делаем что выбран игрок компьютера
       let randomIndexMove =
-        indexsMove[Math.floor(Math.random() * indexsMove.length)];
+        indexsMove[Math.floor(Math.random() * indexsMove.length)]; // генерируем рандомный индекс
 
-      while (this.enemyTeamWithPosition.includes(randomIndexMove)) {
+      while (this.findEnemyPerson(randomIndexMove)) {
         randomIndexMove =
           indexsMove[Math.floor(Math.random() * indexsMove.length)];
-      }
+      } // генерируем рандомный индекс пока он не перестанет совпадать с имеющимеся в команде компьютера
 
-      console.log(
-        this.gameState.characterSelected,
-        randomIndexMove,
-        indexsMove
-      );
-
-      this.userMoveClickIndex(randomIndexMove);
+      this.userMoveClickIndex(randomIndexMove); // перемещаем персонажа
     }
     console.log("логика при ходе компьютера");
   }
 
   levelUP(person) {
     if (person.health <= 50) {
+      // если здоровье персонажа <= 50 то считается вот так
       person.attack = person.attack + person.attack * 0.3;
       person.defence = person.defence + person.defence * 0.3;
     }
-    person.health + 80 > 100 ? (person.health = 100) : (person.health += 80);
-    console.log("повышение уровня персонажей");
+    person.health + 80 > 100 ? (person.health = 100) : (person.health += 80); // подсчет здоровья
+    person.level++; // увеличение уровня
+    console.log("повышение уровня персонажей", person.character);
   }
   nextLevel() {
     //дописать логику при переходе на новый уровень. добавить удаление персонажей user при убийстве
     console.log("new level");
-    this.gameState.level++;
-    for (const person of this.userTeamWithPosition) {
-      this.levelUP(person.character);
-    }
-    this.gamePlay.drawUi(this.gameState.level);
+
+    this.gameState.level++; // увеличение уровня
+
     if (this.gameState.level === 2) {
-      this.userTeam.addAll(generateTeam([Magician, Bowerman, Swordsman], 2, 1));
-      this.enemyTeam.addAll(generateTeam([Undead, daemon, Vampire], 2, 3));
+      // если уровень == 2
+      this.gamePlay.showMessage(`Уровень ${this.gameState.level}`); // показываем сообщение о смене уровня
+
+      this.gamePlay.drawUi(themes[this.gameState.level]); // перерисовываем уровень
+
+      this.gameState.heroesList.addAll(this.userTeam);
+
+      // let randomPos = getRandomUserPosition();
+
+      // for (let i = 0; i <= this.userTeam.length; i++) {
+      //   let fighterAndPosition = new PositionedCharacter(
+      //     this.userTeam[i],
+      //     randomPos[i]
+      //   ); //создание объекта типа PositionedCharacter
+      //   this.userTeamWithPosition.splice(0, this.userTeamWithPosition.length);
+      //   this.gameState.heroesList.splice(0, this.gameState.heroesList.length);
+      //   this.userTeamWithPosition.push(fighterAndPosition); //добавление в userTeamWithPosition
+      //   this.gameState.heroesList.push(fighterAndPosition); //добавление в heroesList
+      // }
+
+      this.enemyTeam = generateTeam([Undead, daemon, Vampire], 1, 2); //создание команды enemy
+
+      this.enemyPositions = getRandomEnemyPosition(); //создание рандомных позиций
+
+      for (let i = 0; i < this.enemyTeam.length; i++) {
+        let fighterAndPosition = new PositionedCharacter(
+          this.enemyTeam[i],
+          this.enemyPositions[i]
+        ); //создание объекта типа PositionedCharacter
+        this.enemyTeamWithPosition.push(fighterAndPosition); //добавление в enemyTeamWithPosition и в heroesList
+        this.gameState.heroesList.push(fighterAndPosition); //добавление в heroesList
+      }
     }
+
+    for (const person of this.userTeam) {
+      this.levelUP(person);
+    }
+
+    this.gamePlay.redrawPositions(this.gameState.heroesList); // перерисовываем игроков
+  }
+
+  scorePoints() {
+    // подсчет очков
+    this.gameState.points += this.userTeam
+      .toArray()
+      .reduce((a, b) => a + b.health, 0);
   }
 }
 console.log(GameController);
