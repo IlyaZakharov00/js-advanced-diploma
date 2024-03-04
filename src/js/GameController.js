@@ -217,7 +217,6 @@ export default class GameController {
         this.gamePlay.showDamage(index, damage).then(() => {
           target.character.health -= damage; // уменьшение жизни у цели
           this.gamePlay.redrawPositions(this.gameState.heroesList);
-
           if (target.character.health <= 0) {
             // если жизней 0 то удаляем персонажа
             this.enemyTeam.splice(this.enemyTeam.indexOf(target), 1);
@@ -230,6 +229,18 @@ export default class GameController {
               1
             );
             this.gamePlay.redrawPositions(this.gameState.heroesList);
+
+            //СУПЕРСИЛА У КОМПЬЮТЕРА
+            if (this.enemyTeam.length == 1) {
+              gamePlay.showMessage("ВНИМАНИЕ, ВКЛЮЧЕН СУПЕР-РЕЖИМ!");
+              this.gamePlay.redrawPositions(this.gameState.heroesList);
+              let idxPrs = this.enemyTeamWithPosition[0].position;
+              let pers = this.findPersonByIndex(idxPrs);
+              pers.character.attack += pers.character.attack * 0.25; // увеличили атаку игрока компьютера
+              pers.character.health += pers.character.health * 0.25; // увеличили здоровье игрока компьютера
+              this.gamePlay.redrawPositions(this.gameState.heroesList);
+            }
+            //СУПЕРСИЛА У КОМПЬЮТЕРА
 
             if (this.enemyTeam.length === 0) {
               // если не осталось персонажей у компьютера то следующий уровень
@@ -480,13 +491,6 @@ export default class GameController {
     }
     //клетки слева
 
-    // console.log(
-    //   upIndex + " upIndex",
-    //   downIndex + " downIndex",
-    //   leftIndex + " leftIndex",
-    //   rightIndex + " rightIndex",
-    //   " ИНДЕКСЫ ХОДЬБЫ"
-    // );
     return this.allowIndexsMove;
   }
 
@@ -499,7 +503,6 @@ export default class GameController {
       this.gameState.permissionMove = false;
       this.enemyAttackUser();
     } else {
-      console.log(this.gameState.characterSelected);
       this.gameState.characterSelected.position = index; // поиск персонажа по индексу и замена этого индекса
       // this.gamePlay.deselectCell(this.gameState.characterSelected); // удаление выбранных персонажей
       this.gamePlay.redrawPositions(this.gameState.heroesList); // перерисовка позиций персонажей
@@ -687,15 +690,18 @@ export default class GameController {
         this.gamePlay.redrawPositions(this.gameState.heroesList);
         if (target.character.health <= 0) {
           // если жизней стало 0 то удаляем персонажа
-          this.gameState.heroesList.splice(
-            this.gameState.heroesList.indexOf(target),
-            1
-          );
+          // this.gamePlay.userTeam.splice(this.userTeam.indexOf(target), 1);
+
           this.userTeamWithPosition.splice(
             this.userTeamWithPosition.indexOf(target),
             1
           );
-          this.gamePlay.userTeam.splice(this.userTeam.indexOf(target), 1);
+
+          this.gameState.heroesList.splice(
+            this.gameState.heroesList.indexOf(target),
+            1
+          );
+
           this.gamePlay.redrawPositions(this.gameState.heroesList);
 
           if (this.userTeamWithPosition.length === 0) {
