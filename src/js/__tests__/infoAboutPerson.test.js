@@ -1,4 +1,3 @@
-import GamePlay from "../GamePlay";
 import Daemon from "../characters/Daemon";
 
 test("should show info", () => {

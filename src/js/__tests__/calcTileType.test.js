@@ -24,7 +24,7 @@ test("should return right", () => {
   expect(result).toBe("center");
 });
 
-test("should return right", () => {
+test("should return right2", () => {
   const result = calcTileType(12, 8);
   expect(result).toBe("center");
 });

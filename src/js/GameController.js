@@ -1,7 +1,7 @@
 import gamePlay from "./GamePlay";
 import themes from "./themes";
 import Team from "./Team.js";
-import { generateTeam, characterGenerator } from "./generators.js";
+import { generateTeam } from "./generators.js";
 import PositionedCharacter from "./PositionedCharacter.js";
 import GameState from "./GameState.js";
 import getRandomUserPosition from "./getRandomUserPosition.js";
@@ -12,7 +12,7 @@ import daemon from "./characters/Daemon.js";
 import Swordsman from "./characters/Swordsman.js";
 import Undead from "./characters/Undead.js";
 import Vampire from "./characters/Vampire.js";
-import Character from "./Character.js";
+// import Character from "./Character.js";
 
 export default class GameController {
   constructor(gamePlay, stateService) {
@@ -32,7 +32,7 @@ export default class GameController {
     // начало игры
     this.gamePlay.drawUi(themes[this.gameState.level]); //отрисовка оформления уровня
 
-    this.userTeam = generateTeam([Magician, Bowerman, Swordsman], 1, 3); //создание команды user
+    this.userTeam = generateTeam([Magician, Bowerman, Swordsman], 1, 2); //создание команды user
 
     this.userPositions = getRandomUserPosition(); //создание рандомных позиций
 
@@ -243,6 +243,10 @@ export default class GameController {
             //СУПЕРСИЛА У КОМПЬЮТЕРА
 
             if (this.enemyTeam.length === 0) {
+              if (this.enemyTeam.length === 0 && this.gameState.level === 5) {
+                gamePlay.showMessage("Вы победили! Игра окончена!");
+                return;
+              }
               // если не осталось персонажей у компьютера то следующий уровень
               this.nextLevel();
             } else {
@@ -314,7 +318,7 @@ export default class GameController {
     if (
       this.gameState.characterSelected &&
       !this.allowIndexsMove.includes(index) &&
-      !this.allowIndexsAttack.includes(index)
+      !this.findPersonByIndex(index)
     ) {
       this.gamePlay.setCursor("not-allowed"); //при недопустимых условиях курсор not-allowed
     }
@@ -579,6 +583,7 @@ export default class GameController {
       }
 
       if (lineUp < 0) {
+        console.log("linup < 0");
       } else {
         for (let k = 1; k <= countAttack; k++) {
           if (!this.leftBorder.includes(lineUp + k)) {
@@ -589,6 +594,7 @@ export default class GameController {
       }
 
       if (lineDown >= this.gamePlay.boardSize ** 2) {
+        console.log("lineDown >= this.gamePlay.boardSize ** 2");
       } else {
         for (let k = 1; k <= countAttack; k++) {
           if (
@@ -620,6 +626,7 @@ export default class GameController {
       }
 
       if (lineUp < 0) {
+        console.log('lineUp < 0')
       } else {
         for (let k = 1; k <= countAttack; k++) {
           if (!this.rightBorder.includes(lineUp - k)) {
@@ -630,6 +637,7 @@ export default class GameController {
       }
 
       if (lineDown >= this.gamePlay.boardSize ** 2) {
+        console.log("lineDown >= this.gamePlay.boardSize ** 2");
       } else {
         for (let k = 1; k <= countAttack; k++) {
           if (!this.rightBorder.includes(lineDown - k) && lineDown - k > 0) {
@@ -718,52 +726,50 @@ export default class GameController {
       let randomIndexMove =
         indexsMove[Math.floor(Math.random() * indexsMove.length)]; // генерируем рандомный индекс
 
-      while (this.findEnemyPerson(randomIndexMove)) {
+      while (
+        this.findEnemyPerson(randomIndexMove) &&
+        this.findUserPerson(randomIndexMove)
+      ) {
         randomIndexMove =
           indexsMove[Math.floor(Math.random() * indexsMove.length)];
       } // генерируем рандомный индекс пока он не перестанет совпадать с имеющимеся в команде компьютера
 
       this.userMoveClickIndex(randomIndexMove); // перемещаем персонажа
     }
-    console.log("логика при ходе компьютера");
   }
 
   levelUP(person) {
     if (person.health <= 50) {
       // если здоровье персонажа <= 50 то считается вот так
-      person.attack = person.attack + person.attack * 0.3;
-      person.defence = person.defence + person.defence * 0.3;
+      person.attack *= 1.3;
+      person.defence *= 1.3;
     }
     person.health + 80 > 100 ? (person.health = 100) : (person.health += 80); // подсчет здоровья
     person.level++; // увеличение уровня
-    console.log("повышение уровня персонажей", person.character);
   }
-  nextLevel() {
-    //дописать логику при переходе на новый уровень. добавить удаление персонажей user при убийстве
-    console.log("new level");
 
+  nextLevel() {
     this.gameState.level++; // увеличение уровня
 
-    if (this.gameState.level === 2) {
+    gamePlay.showMessage(
+      `Уровень ${this.gameState.level}` +
+        ` Ваше количество очков ${this.scorePoints()}`
+    ); // показываем сообщение о смене уровня
+
+    this.gamePlay.drawUi(themes[this.gameState.level]); // перерисовываем уровень
+
+    for (const person of this.userTeam) {
+      this.levelUP(person); // увеличение уровня каждому из оставшихся персонажей команды user
+    }
+
+    if (this.gameState.level == 2) {
       // если уровень == 2
-      this.gamePlay.showMessage(`Уровень ${this.gameState.level}`); // показываем сообщение о смене уровня
 
-      this.gamePlay.drawUi(themes[this.gameState.level]); // перерисовываем уровень
+      let randomPos = getRandomUserPosition();
 
-      this.gameState.heroesList.addAll(this.userTeam);
-
-      // let randomPos = getRandomUserPosition();
-
-      // for (let i = 0; i <= this.userTeam.length; i++) {
-      //   let fighterAndPosition = new PositionedCharacter(
-      //     this.userTeam[i],
-      //     randomPos[i]
-      //   ); //создание объекта типа PositionedCharacter
-      //   this.userTeamWithPosition.splice(0, this.userTeamWithPosition.length);
-      //   this.gameState.heroesList.splice(0, this.gameState.heroesList.length);
-      //   this.userTeamWithPosition.push(fighterAndPosition); //добавление в userTeamWithPosition
-      //   this.gameState.heroesList.push(fighterAndPosition); //добавление в heroesList
-      // }
+      for (let i = 0; i < this.userTeamWithPosition.length; i++) {
+        this.userTeamWithPosition[i].position = randomPos[i];
+      }
 
       this.enemyTeam = generateTeam([Undead, daemon, Vampire], 1, 2); //создание команды enemy
 
@@ -779,8 +785,73 @@ export default class GameController {
       }
     }
 
-    for (const person of this.userTeam) {
-      this.levelUP(person);
+    if (this.gameState.level == 3) {
+      // если уровень == 3
+
+      let randomPos = getRandomUserPosition();
+
+      for (let i = 0; i < this.userTeamWithPosition.length; i++) {
+        this.userTeamWithPosition[i].position = randomPos[i];
+      }
+
+      this.enemyTeam = generateTeam([Undead, daemon, Vampire], 3, 2); //создание команды enemy
+
+      this.enemyPositions = getRandomEnemyPosition(); //создание рандомных позиций
+
+      for (let i = 0; i < this.enemyTeam.length; i++) {
+        let fighterAndPosition = new PositionedCharacter(
+          this.enemyTeam[i],
+          this.enemyPositions[i]
+        ); //создание объекта типа PositionedCharacter
+        this.enemyTeamWithPosition.push(fighterAndPosition); //добавление в enemyTeamWithPosition и в heroesList
+        this.gameState.heroesList.push(fighterAndPosition); //добавление в heroesList
+      }
+    }
+
+    if (this.gameState.level == 4) {
+      // если уровень == 4
+
+      let randomPos = getRandomUserPosition();
+
+      for (let i = 0; i < this.userTeamWithPosition.length; i++) {
+        this.userTeamWithPosition[i].position = randomPos[i];
+      }
+
+      this.enemyTeam = generateTeam([Undead, daemon, Vampire], 4, 2); //создание команды enemy
+
+      this.enemyPositions = getRandomEnemyPosition(); //создание рандомных позиций
+
+      for (let i = 0; i < this.enemyTeam.length; i++) {
+        let fighterAndPosition = new PositionedCharacter(
+          this.enemyTeam[i],
+          this.enemyPositions[i]
+        ); //создание объекта типа PositionedCharacter
+        this.enemyTeamWithPosition.push(fighterAndPosition); //добавление в enemyTeamWithPosition и в heroesList
+        this.gameState.heroesList.push(fighterAndPosition); //добавление в heroesList
+      }
+    }
+
+    if (this.gameState.level == 5) {
+      // если уровень == 5
+
+      let randomPos = getRandomUserPosition();
+
+      for (let i = 0; i < this.userTeamWithPosition.length; i++) {
+        this.userTeamWithPosition[i].position = randomPos[i];
+      }
+
+      this.enemyTeam = generateTeam([Undead, daemon, Vampire], 5, 2); //создание команды enemy
+
+      this.enemyPositions = getRandomEnemyPosition(); //создание рандомных позиций
+
+      for (let i = 0; i < this.enemyTeam.length; i++) {
+        let fighterAndPosition = new PositionedCharacter(
+          this.enemyTeam[i],
+          this.enemyPositions[i]
+        ); //создание объекта типа PositionedCharacter
+        this.enemyTeamWithPosition.push(fighterAndPosition); //добавление в enemyTeamWithPosition и в heroesList
+        this.gameState.heroesList.push(fighterAndPosition); //добавление в heroesList
+      }
     }
 
     this.gamePlay.redrawPositions(this.gameState.heroesList); // перерисовываем игроков
@@ -788,54 +859,12 @@ export default class GameController {
 
   scorePoints() {
     // подсчет очков
-    this.gameState.points += this.userTeam
-      .toArray()
-      .reduce((a, b) => a + b.health, 0);
+    console.log("подсчет очков");
+    let points = 0;
+    for (const pers of this.userTeam) {
+      points += pers.health;
+    }
+    return points;
   }
 }
 console.log(GameController);
-
-// this.gamePlay.showDamage(target.position, damage).then(() => {
-//   console.log("на нахуй");
-
-//   target.character.health -= damage;
-//   if (target.character.health <= 0) {
-//     let idx = this.gameState.heroesList.indexOf(target);
-//     let idxUser = this.userTeamWithPosition.indexOf(target);
-//     this.userTeamWithPosition.splice(idxUser, 1);
-//     this.gameState.heroesList.splice(idx, 1);
-//     // this.getDeletion(target.position);
-//     this.gamePlay.redrawPositions(this.gameState.heroesList);
-
-//     // this.gamePlay.deselectCell(this.gameState.characterSelected);
-//   }
-//   console.log("обновили");
-
-//   this.gamePlay.redrawPositions(this.gameState.heroesList);
-// });
-
-//     .then(() => {
-//       this.gamePlay.redrawPositions(this.gameState.heroesList);
-//       this.gameState.permissionMove = true;
-//       this.gameState.characterSelected = null;
-//     })
-//     .then(() => {
-//       this.GameStatistic();
-//     });
-// } else {
-//   rival = rivalsTeam[Math.floor(Math.random() * rivalsTeam.length)];
-//   const rivalRange = this.calcPositionMove(
-//     rival.position,
-//     rival.character.distance
-//   );
-//   rivalRange.forEach((event) => {
-//     this.gameState.heroesList.forEach((i) => {
-//       if (event === i.position) {
-//         rivalRange.splice(rivalRange.indexOf(i.position), 1);
-//       }
-//     });
-//   });
-//   const rivalPosition = this.getRandom(rivalRange);
-//   rival.position = rivalPosition;
-//   this.gamePlay.redrawPositions(this.gameState.heroesList);
-//   this.gameState.permissionMove = true;
